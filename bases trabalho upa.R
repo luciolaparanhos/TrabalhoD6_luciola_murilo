@@ -19,7 +19,7 @@ producaoupa <- read_xlsx("C:/Users/Luciola/Documents/Pos ENAP ADPP/D6analise/tra
 controleupa <- controleupa [,c(1,2,5,6,7,8,10,11,13,17,24,25,37,38,40,41,42,43)]
 
 
-library(tidyverse)
+
 
 
 controleupa <- controleupa %>%
@@ -136,21 +136,21 @@ mutate(tempo_obra = ymd(as.Date(data_conclusao)) - ymd(as.Date(Data_OIS))) #%>%
 #mutate(tempo_funciona = as.Date(Ano_funcionamento) - as.Date(data_conclusao))
 #mutate(Ano_funcionamento = c(Ano_funcionamento, "-07-01"))
 
+# mostra tempo média de obra por estado
 evolucao_upa_uf <- evolucao_upa%>%
   filter(!is.na(tempo_obra))%>%
   group_by(UF)%>%
   summarise(em_obras = n(),
             media_meses_obra = round(mean(tempo_obra)/30),
             min_dias_obra = min(tempo_obra),
-            max_dias_obra = max(tempo_obra)
-            )
+            max_dias_obra = max(tempo_obra))
 
-evolucao_upa [evolucao_upa$UF == "AL", c("UF", "municipio", "tempo_obra")]
+#evolucao_upa [evolucao_upa$UF == "AL", c("UF", "municipio", "tempo_obra")]
 
   
 # AN?LISE DE PRODU??O DAS UPA
 
-# desempilhando dados de produ??o mensal das UPA, todos os procedimentos
+# desempilhando dados de produção mensal das UPA, todos os procedimentos
 producao_mes <- producaoupa %>%
   mutate(CNES=as.numeric(CNES))%>%
   group_by(CNES,UF,MUNIC,OPCAO_CUSTEIO, ANO_MES)%>%
@@ -168,15 +168,92 @@ erro <- producao_mes%>%
   anti_join(upa_funcionamento)
 
 
+# '0301060118' classificação de risco
+
+#Filtra só os procedimentos de atendimento médico
 atendimentos <- producaoupa %>%
  select(CNES, UF, MUNIC, OPCAO_CUSTEIO,DES_PROC, COD_PROC, ANO_MES, ATENDIMENTO)%>%
-  filter(COD_PROC %in% c('0301060096','0301060029','0301060118','0301060100'))
-  atendimentos_mes <- atendimentos %>%
-  mutate(CNES=as.numeric(CNES))%>%
+  filter(COD_PROC %in% c('0301060096','0301060029','0301060100'))
+
+#Desempilha dados de atendimento da tabela produção
+# mostra atendimentos de cada upa nos meses
+atendimentos_mes <- atendimentos %>%
+ mutate(CNES = as.numeric(CNES)) %>%
   group_by(CNES,UF,MUNIC,OPCAO_CUSTEIO, ANO_MES)%>%
   summarise(total_atend= sum(ATENDIMENTO))%>%
-  spread(ANO_MES, total_atend, fill = NA)
+  spread(ANO_MES, total_atend, fill = 0)
+    
 
-#  atendimentos_mes_uf <- atendimentos_mes%>%
-#   group_by()
+# mostra média de atendimentos de cada upa no semestre
+atendimentos_mes2 <- atendimentos %>%
+  mutate(CNES = as.numeric(CNES)) %>%
+  group_by(CNES,UF,MUNIC,OPCAO_CUSTEIO)%>%
+  summarise(media_cnes_sem = round(sum(ATENDIMENTO)/6,0) #,
+            #prod_III = case_when(
+                   #OPCAO_CUSTEIO=="III"&media_cnes_sem>=4500~"DE ACORDO",
+                  #OPCAO_CUSTEIO=="V"&media_cnes_sem>=6750~"DE ACORDO",
+                  #OPCAO_CUSTEIO=="III"&media_cnes_sem>=10125~"DE ACORDO")
+                                )
+ # mg <- atendimentos_mes2 %>%
+  #  select(CNES,OPCAO_CUSTEIO, media_cnes_sem) %>%
+   # filter(UF == 'MG')%>%
+  #box_atend_uf <- ggplot(mg, aes(x = CNES, y = media_cnes_sem))+
+  #geom_boxplot(aes(fill = OPCAO_CUSTEIO))
+#box_atend_uf
+ 
+
+  
+# mostra média de atendimentos de cada estado por PORTE no semestre
+# FILTRA Somente as opções III, V e VIII de custeio, que equivalem aos portes I, II e III
+atendimentos_mes_uf2 <- atendimentos_mes2 %>%
+  filter(OPCAO_CUSTEIO %in% c('III','V','VIII'))%>%
+  group_by(UF,OPCAO_CUSTEIO)%>%
+  summarise(nr_upa = n(),
+            total_media = round(sum(media_cnes_sem)/nr_upa,0)) %>%
+  spread(OPCAO_CUSTEIO,total_media, fill=0)%>%
+  group_by(UF)%>%
+    summarise(nr_upa = sum(nr_upa),
+                 III = sum(III),
+                   V = sum(V),
+               VIII = sum(VIII))
+
+  
+summary(atendimentos_mes_uf)
+
+# grafico boxplot da medIa atendimento por uf e porte I
+atend_porteI <- atendimentos_mes2 %>%
+  filter(OPCAO_CUSTEIO == "III")%>% 
+  filter(MUNIC != "Itanhaém")%>%    #outlier
+  filter(media_cnes_sem > 100)      #outlier (5 casos)
+  box_atend_uf1 <- ggplot(atend_porteI, aes(x = UF, y = media_cnes_sem, fill=UF))+
+  geom_boxplot()+  theme(legend.position="none")+
+    labs(title="Média mensal de atendimentos - UPA PORTE I por UF",x="", y = "Média Atendimentos/mês")
+  box_atend_uf1
+
+# grafico boxplot da medIa atendimento por uf e porte II
+  atend_porteII <- atendimentos_mes2 %>%
+    filter(OPCAO_CUSTEIO == "V")%>%
+    filter(MUNIC != "Parnamirim")%>%   #outlier
+    filter(media_cnes_sem > 350)      #outlier (2 casos)
+    box_atend_uf2 <- ggplot(atend_porteII, aes(x = UF, y = media_cnes_sem,fill=UF))+
+    geom_boxplot()+ theme(legend.position="none")+
+      labs(title="Média mensal de atendimentos - UPA PORTE II por UF",x="", y = "Média Atendimentos/mês")
+  box_atend_uf2
+  
+
+# grafico boxplot da medIa atendimento por uf e porte III
+  atend_porteIII <- atendimentos_mes2 %>%
+    filter(OPCAO_CUSTEIO == "VIII")%>%
+    filter(MUNIC != "Duque de Caxias")%>%  #outlier (2 casos)
+    filter(media_cnes_sem > 600)          #outlier (3 casos)
+    box_atend_uf3 <- ggplot(atend_porteIII, aes(x = UF, y = media_cnes_sem, fill=UF))+
+    geom_boxplot()+ theme(legend.position="none")+
+     labs(title="Média mensal de atendimentos-UPA PORTE III por UF",x="", y = "Média Atendimentos/mês")+
+    box_atend_uf3
+  
+    ?labs()
+  
+    #rowwise() %>%
+  #mutate(media = mean(c(var1, var2, var3), na.rm=T)) %>%
+  
 

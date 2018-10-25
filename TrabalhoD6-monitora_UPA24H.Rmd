@@ -88,20 +88,18 @@ upa_porte_func <- controleupa %>%
   mutate(prop = prop.table(total))
 
 #install.packages('ggplot2')
-#Loading
-#library(ggplot2)
-#library(scales)
+library(ggplot2)
+library(scales)
 
 blank_theme <- theme_minimal()+
   theme(
-  axis.title.x = element_blank(),
-  axis.title.y = element_blank(),
-  panel.border = element_blank(),
-  panel.grid=element_blank(),
-  axis.ticks = element_blank(),
-  plot.title=element_text(size=14, face="bold")
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.border = element_blank(),
+    panel.grid = element_blank(),
+    axis.ticks = element_blank(),
+    plot.title=element_text(size=14, face="bold", hjust = 0.5)
   )
-
 #grafico upa por porte
   barras_porte <- ggplot(upa_porte,aes(x="", y=total, fill=porte))+
   geom_bar(width = 1, stat = "identity")
@@ -111,7 +109,7 @@ blank_theme <- theme_minimal()+
                   label = percent(total/sum(total))), size=4)+
   ggtitle("% DE UPA POR PORTE")
   
-pizza_porte + blank_theme
+pizza_porte + blank_theme + theme(axis.text.x=element_blank())
 
  # GRAFICO UPA EM FUNCIONAMENTO por porte e UF
  barras_porte_f <- ggplot(upa_porte_func,aes(x="", y=total, fill=porte))+
@@ -121,8 +119,7 @@ pizza_porte + blank_theme
    geom_text(aes(y = total/3 + c(0, cumsum(total)[-length(total)]), 
                  label = percent(total/sum(total))), size=4)+
     ggtitle("% DE UPA EM FUNCIONAMENTO POR PORTE")
- 
- pizza_porte_func + blank_theme
+ pizza_porte_func + blank_theme + theme(axis.text.x=element_blank())
  
  # GRAFICO UPA por porte e UF
  porte_estado <- ggplot(data=UPA_UFporte, aes(x=UF, y=total, fill=porte)) +
@@ -131,10 +128,9 @@ pizza_porte + blank_theme
  
  # GRAFICO UPA EM FUNCIONAMENTO por porte e UF
  porte_estado_func <- ggplot(data=UPA_UFporte_func, aes(x=UF, y=total, fill=porte)) +
-   geom_bar(stat="identity")
- porte_estado_func
-
-
+    geom_bar(stat="identity")+
+    ggtitle("TOTAL DE UPA EM FUNCIONAMENTO POR UF E POR PORTE")
+    porte_estado_func
  
 library(lubridate)
  
@@ -149,6 +145,116 @@ select(nrproposta,UF,municipio, ano_habil_construcao,Data1aParcela,Data_OIS,data
 evolucao_upa <- evolucao_upa %>%
 mutate(Ano_funcionamento = as.character(Ano_funcionamento))%>%
 mutate(tempo_obra = ymd(as.Date(data_conclusao)) - ymd(as.Date(Data_OIS))) #%>%
+#mutate(tempo_funciona = as.Date(Ano_funcionamento) - as.Date(data_conclusao))
+#mutate(Ano_funcionamento = c(Ano_funcionamento, "-07-01"))
+
+# mostra tempo média de obra por estado
+evolucao_upa_uf <- evolucao_upa%>%
+  filter(!is.na(tempo_obra))%>%
+  group_by(UF)%>%
+  summarise(em_obras = n(),
+            media_meses_obra = round(mean(tempo_obra)/30),
+            min_dias_obra = min(tempo_obra),
+            max_dias_obra = max(tempo_obra))
+
+#evolucao_upa [evolucao_upa$UF == "AL", c("UF", "municipio", "tempo_obra")]
+
+  
+# AN?LISE DE PRODU??O DAS UPA
+
+# desempilhando dados de produção mensal das UPA, todos os procedimentos
+producao_mes <- producaoupa %>%
+  mutate(CNES=as.numeric(CNES))%>%
+  group_by(CNES,UF,MUNIC,OPCAO_CUSTEIO, ANO_MES)%>%
+    summarise(total_atend= sum(ATENDIMENTO))%>%
+    spread(ANO_MES, total_atend, fill = NA)
+head(producao_mes)
+
+# identificando UPA sem produção
+semproducao <- upa_funcionamento%>%
+  anti_join(producao_mes)
+head(semproducao)
+
+#identifiquei 2 UPA que n?o estava indicadas como 'em funcionamento' mas que tinham produ??o
+erro <- producao_mes%>%
+  anti_join(upa_funcionamento)
+
+
+# '0301060118' classificação de risco
+
+#Filtra só os procedimentos de atendimento médico
+atendimentos <- producaoupa %>%
+ select(CNES, UF, MUNIC, OPCAO_CUSTEIO,DES_PROC, COD_PROC, ANO_MES, ATENDIMENTO)%>%
+  filter(COD_PROC %in% c('0301060096','0301060029','0301060100'))
+
+#Desempilha dados de atendimento da tabela produção
+# mostra atendimentos de cada upa nos meses
+atendimentos_mes <- atendimentos %>%
+ mutate(CNES = as.numeric(CNES)) %>%
+  group_by(CNES,UF,MUNIC,OPCAO_CUSTEIO, ANO_MES)%>%
+  summarise(total_atend= sum(ATENDIMENTO))%>%
+  spread(ANO_MES, total_atend, fill = 0)
+    
+
+# mostra média de atendimentos de cada upa no semestre
+atendimentos_mes2 <- atendimentos %>%
+  mutate(CNES = as.numeric(CNES)) %>%
+  group_by(CNES,UF,MUNIC,OPCAO_CUSTEIO)%>%
+  summarise(media_cnes_sem = round(sum(ATENDIMENTO)/6,0) #,
+            #prod_III = case_when(
+                   #OPCAO_CUSTEIO=="III"&media_cnes_sem>=4500~"DE ACORDO",
+                  #OPCAO_CUSTEIO=="V"&media_cnes_sem>=6750~"DE ACORDO",
+                  #OPCAO_CUSTEIO=="III"&media_cnes_sem>=10125~"DE ACORDO")
+                                )
+ 
+  
+# mostra média de atendimentos de cada estado por PORTE no semestre
+# FILTRA Somente as opções III, V e VIII de custeio, que equivalem aos portes I, II e III
+atendimentos_mes_uf2 <- atendimentos_mes2 %>%
+  filter(OPCAO_CUSTEIO %in% c('III','V','VIII'))%>%
+  group_by(UF,OPCAO_CUSTEIO)%>%
+  summarise(nr_upa = n(),
+            total_media = round(sum(media_cnes_sem)/nr_upa,0)) %>%
+  spread(OPCAO_CUSTEIO,total_media, fill=0)%>%
+  group_by(UF)%>%
+    summarise(nr_upa = sum(nr_upa),
+                 III = sum(III),
+                   V = sum(V),
+               VIII = sum(VIII))
+
+  
+#summary(atendimentos_mes_uf)
+
+# grafico boxplot da medIa atendimento por uf e porte I
+atend_porteI <- atendimentos_mes2 %>%
+  filter(OPCAO_CUSTEIO == "III")%>% 
+  filter(MUNIC != "Itanhaém")%>%    #outlier
+  filter(media_cnes_sem > 100)      #outlier (5 casos)
+  box_atend_uf1 <- ggplot(atend_porteI, aes(x = UF, y = media_cnes_sem, fill=UF))+
+  geom_boxplot()+  theme(legend.position="none")+
+    labs(title="Média mensal de atendimentos - UPA PORTE I por UF",x="", y = "Média Atendimentos/mês")
+  box_atend_uf1
+
+# grafico boxplot da medIa atendimento por uf e porte II
+  atend_porteII <- atendimentos_mes2 %>%
+    filter(OPCAO_CUSTEIO == "V")%>%
+    filter(MUNIC != "Parnamirim")%>%   #outlier
+    filter(media_cnes_sem > 350)      #outlier (2 casos)
+    box_atend_uf2 <- ggplot(atend_porteII, aes(x = UF, y = media_cnes_sem,fill=UF))+
+    geom_boxplot()+ theme(legend.position="none")+
+      labs(title="Média mensal de atendimentos - UPA PORTE II por UF",x="", y = "Média Atendimentos/mês")
+  box_atend_uf2
+  
+
+# grafico boxplot da medIa atendimento por uf e porte III
+  atend_porteIII <- atendimentos_mes2 %>%
+    filter(OPCAO_CUSTEIO == "VIII")%>%
+    filter(MUNIC != "Duque de Caxias")%>%  #outlier (2 casos)
+    filter(media_cnes_sem > 600)          #outlier (3 casos)
+    box_atend_uf3 <- ggplot(atend_porteIII, aes(x = UF, y = media_cnes_sem, fill=UF))+
+    geom_boxplot()+ theme(legend.position="none")+
+     labs(title="Média mensal de atendimentos-UPA PORTE III por UF",x="", y = "Média Atendimentos/mês")
+    box_atend_uf3
 
 
 ```
@@ -157,26 +263,48 @@ mutate(tempo_obra = ymd(as.Date(data_conclusao)) - ymd(as.Date(Data_OIS))) #%>%
 
 ```{r echo=FALSE, eval=T, fig.align='center'}
 plot(pizza_porte)
-plot(pizza_porte_func)
 
 ```
 
 ## UPA POR PORTE NOS ESTADOS
 
 ```{r echo=FALSE, eval=T, fig.align='center'}
-plot(porte_estado)
+plot(porte_estado_func)
 
 ```
 
 
 ## Distribuição das UPA no Brasil
 
-Atualmente temos no Brasil mais de 600 UPA em funcionamento e quase 200 em obras. Temos no entanto mais de 130 unidades com obras concluídas que não iniciaram funcionamento. Abaixo a distribuição das UPA do Programa por porte e sua disitibuição no país.
+Atualmente temos no Brasil mais de 600 UPA em funcionamento e quase 200 em obras. Temos no entanto mais de 130 unidades com obras concluídas que não iniciaram funcionamento. Abaixo a distribuição das UPA do Programa por porte e sua distribuição no país.
 
 ```{r echo=FALSE, eval=T, fig.align='center'}
-Controle_status
+
 
 ```
 
-## EVOLUÇÃO DA IMPLANTAÇÃO DAS UPA
+## PRODUÇÃO DAS UPA
+
+Considerando o total das UPA já funcionando por opção de capacidade de atendimento, temos uma média de atendimentos esperados, que seriam em torno de 4.500/mês nas unidades Porte I, 6.750 nas Porte II, e 10.125 nas Porte III.
+A seguir gráficos da média mensal de atendimentos realizados nas UPA por porte. Dados do 1º semestre de 2018.
+
+```{r echo=FALSE, eval=T, fig.align='center'}
+plot(box_atend_uf1)
+
+```
+
+## PRODUÇÃO DAS UPA DISTRIBUIÇÃO POR ESTADOS
+
+```{r echo=FALSE, eval=T, fig.align='center'}
+plot(box_atend_uf2)
+
+```
+
+## PRODUÇÃO DAS UPA DISTRIBUIÇÃO POR ESTADOS
+
+```{r echo=FALSE, eval=T, fig.align='center'}
+plot(box_atend_uf3)
+
+```
+
 
