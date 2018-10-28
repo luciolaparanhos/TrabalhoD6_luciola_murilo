@@ -1,0 +1,394 @@
+---
+title: "Monitoramento do Programa UPA 24h"
+author: "Lucíola Paranhos e Murilo Lordello"
+date: "26 de outubro de 2018"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE,  message=FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+#``{r, message=FALSE, warning = FALSE, echo = FALSE}
+
+# lista de pacotes
+lista.de.pacotes = c("tidyverse","lubridate","janitor","readxl","stringr","repmis","survey","srvyr","ggplot2","scales")
+novos.pacotes <- lista.de.pacotes[!(lista.de.pacotes %in%
+                                      installed.packages()[,"Package"])]
+if(length(novos.pacotes) > 0) {install.packages(novos.pacotes)}
+lapply(lista.de.pacotes, require, character.only=T)
+rm(lista.de.pacotes,novos.pacotes)
+gc()
+
+
+#importando bases UPA E PRODUÇÃO SIA/SUS
+# controleupa - Dados administrativos da Coordenação de Urgência do Ministério da Saúde
+# registra as propostas de construção de UPA
+# producaoupa - Extração com Tabwin do Sistema SIA/SUS do Ministério da Saúde
+# registra a produção das UPA que estão em funcionamento
+controleupa <- read_xlsx("C:/Users/Luciola/Documents/Pos ENAP ADPP/D6analise/trabalho final/controle_upa24h_ago2018.xlsx", skip = 0)
+producaoupa <- read_xlsx("C:/Users/Luciola/Documents/Pos ENAP ADPP/D6analise/trabalho final/producao_upa_13082018.xlsx", skip = 3)
+
+controleupa <- controleupa [,c(1,2,5,6,7,8,10,11,13,17,24,25,37,38,40,41,42,43)]
+
+
+# resumindo opÇÕES de status
+controleupa <- controleupa %>%
+  mutate(situacao = str_sub(Status_UPA, 1,2),
+         situacao = case_when(
+             situacao == "1."~"Ação preparatória",
+             situacao == "2."~"Ação preparatória",
+             situacao == "3."~"Em obras",
+             situacao == "4 "~"Concluída",
+             situacao == "4."~"Em funcionamento")
+         )
+
+# total e percentual de upa por situação e por UF
+UPA_UF_situacao <- controleupa %>%
+  group_by(UF,situacao) %>%
+   summarise(total= n())%>%
+    mutate(percent=prop.table(total))
+
+
+# total e percentual de upa por ano da proposta e por situação
+UPA_progr_situa <- controleupa %>%
+  filter(!progr== "SES/SMS")%>%
+  group_by(progr,situacao) %>%
+    summarise(total= n())%>%
+    mutate(percent=prop.table(total))
+
+# GRAFICO UPA por situação e ano da proposta
+UPA_progr <- ggplot(data=UPA_progr_situa, aes(x=progr, y=total, fill=situacao)) +
+  geom_bar(stat="identity")+
+  ggtitle("TOTAL DE UPA POR ANO PROPOSTA E SITUAÇÃO DE IMPLANTAÇÃO")+
+  labs(x="Ano proposta", y = "Nº de UPA")
+UPA_progr
+
+# GRAFICO UPA por situação e UF
+ situacao_estado <- ggplot(data=UPA_UF_situacao, aes(x=UF, y=total, fill=situacao)) +
+   geom_bar(stat="identity")+
+    labs(x="UF", y = "Nº de UPA")
+ situacao_estado
+ 
+
+# TOTALiza  UPA por situação (status resumido)
+Controle_status <- controleupa %>%
+  group_by(situacao)%>%
+    summarise(nr_UPA = n())%>%
+    mutate(percent=prop.table(nr_UPA))
+#Controle_status
+
+# total e percentual de upa por porte e por UF
+UPA_UFporte <- controleupa %>%
+  group_by(UF,porte) %>%
+   summarise(total= n())%>%
+    mutate(percent=prop.table(total))
+
+
+# total e percentual de upa por porte
+upa_porte <- controleupa %>%
+  group_by(porte)%>%
+  summarise(total=n())%>%
+  mutate(prop = prop.table(total))
+
+
+#controle upa em funcionamento
+upa_funcionamento <- controleupa %>%
+  filter(str_detect(Status_UPA, "4.4|4.5"))%>%
+  mutate(CNES = as.numeric(CNES))
+
+# total e percentual de upa em funcionamento por porte e por UF
+UPA_UFporte_func <- controleupa %>%
+  filter(str_detect(Status_UPA, "4.4|4.5")) %>%
+  group_by(UF,porte) %>%
+   summarise(total= n())%>%
+   mutate(percent=prop.table(total))
+
+# total e percentual de upa em funcionamento por porte
+upa_porte_func <- controleupa %>%
+  filter(str_detect(Status_UPA, "4.4|4.5"))%>%
+  group_by(porte)%>%
+  summarise(total=n())%>%
+  mutate(prop = prop.table(total))
+
+#install.packages('ggplot2')
+library(ggplot2)
+library(scales)
+
+blank_theme <- theme_minimal()+
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.border = element_blank(),
+    panel.grid = element_blank(),
+    axis.ticks = element_blank(),
+    plot.title=element_text(size=14, face="bold", hjust = 0.5)
+  )
+#grafico upa por porte
+  barras_porte <-ggplot(upa_porte, aes(x = porte, y = total, fill = porte)) + geom_bar(stat = "identity")+
+  ggtitle("TOTAL DE UPA POR PORTE")
+  barras_porte
+  
+  
+  # GRAFICO UPA EM FUNCIONAMENTO por porte e UF
+ barras_porte_f <- ggplot(upa_porte_func,aes(x="", y=total, fill=porte))+
+  geom_bar(width = 1, stat = "identity")
+ pizza_porte_func <- barras_porte_f + coord_polar("y", start=0)+
+   theme(axis.text.x=element_blank())+
+   geom_text(aes(y = total/3 + c(0, cumsum(total)[-length(total)]), 
+                 label = percent(total/sum(total))), size=4)+
+    ggtitle("% DE UPA EM FUNCIONAMENTO POR PORTE")+ blank_theme + theme(axis.text.x=element_blank())
+ pizza_porte_func 
+ 
+ # GRAFICO UPA por porte e UF
+ porte_estado <- ggplot(data=UPA_UFporte, aes(x=UF, y=total, fill=porte)) +
+   geom_bar(stat="identity")+
+ labs(x="Porte", y = "Nº de UPA")
+ porte_estado
+ 
+  # GRAFICO UPA EM FUNCIONAMENTO por porte e UF
+ porte_estado_func <- ggplot(data=UPA_UFporte_func, aes(x=UF, y=total, fill=porte)) +
+    geom_bar(stat="identity")+
+    ggtitle("TOTAL DE UPA EM FUNCIONAMENTO POR UF E POR PORTE")+
+  labs(x="", y = "Nº de UPA")
+    porte_estado_func
+ 
+library(lubridate)
+ 
+# datas que marcam evolução da implantação das upa, financiadas pelo Ministerio da Saúde
+# excluídas as construídas por gestores locais e/ou realizadas pela Caixa Economica Federal
+evolucao_upa <- controleupa %>%
+filter(progr!="2008 CEF",!is.na(nrproposta))%>%
+select(nrproposta,UF,municipio, ano_habil_construcao,Data1aParcela,Data_OIS,data_conclusao,Ano_funcionamento)
+
+#acrescenta coluna que mostra tempo gasto na execução da obra, em dias
+# a ideia é tirar média desse tempo por estado depois
+evolucao_upa <- evolucao_upa %>%
+mutate(Ano_funcionamento = as.character(Ano_funcionamento))%>%
+mutate(tempo_obra = ymd(as.Date(data_conclusao)) - ymd(as.Date(Data_OIS))) #%>%
+
+# mostra tempo média de obra por estado
+evolucao_upa_uf <- evolucao_upa%>%
+  filter(!is.na(tempo_obra))%>%
+  group_by(UF)%>%
+  summarise(em_obras = n(),
+            media_meses_obra = round(mean(tempo_obra)/30),
+            min_dias_obra = min(tempo_obra),
+            max_dias_obra = max(tempo_obra))
+
+  
+# ANÁLISE DE PRODUÇÃOO DAS UPA
+
+# desempilhando dados de produção mensal das UPA, todos os procedimentos
+producao_mes <- producaoupa %>%
+  mutate(CNES=as.numeric(CNES))%>%
+  group_by(CNES,UF,MUNIC,OPCAO_CUSTEIO, ANO_MES)%>%
+    summarise(total_atend= sum(ATENDIMENTO))%>%
+    spread(ANO_MES, total_atend, fill = NA)
+head(producao_mes)
+
+# identificando UPA sem produção
+semproducao <- upa_funcionamento%>%
+  anti_join(producao_mes)
+head(semproducao)
+
+#identifiquei 2 UPA que n?o estava indicadas como 'em funcionamento' mas que tinham produção
+erro <- producao_mes%>%
+  anti_join(upa_funcionamento)
+
+
+#Filtra só os procedimentos de atendimento médico
+atendimentos <- producaoupa %>%
+ select(CNES, UF, MUNIC, OPCAO_CUSTEIO,DES_PROC, COD_PROC, ANO_MES, ATENDIMENTO)%>%
+  filter(COD_PROC %in% c('0301060096','0301060029','0301060100'))
+
+#Desempilha dados de atendimento da tabela produção
+# mostra atendimentos de cada upa nos meses
+atendimentos_mes <- atendimentos %>%
+ mutate(CNES = as.numeric(CNES)) %>%
+  group_by(CNES,UF,MUNIC,OPCAO_CUSTEIO, ANO_MES)%>%
+  summarise(total_atend= sum(ATENDIMENTO))%>%
+  spread(ANO_MES, total_atend, fill = 0)
+    
+
+# mostra média de atendimentos de cada upa no semestre
+atendimentos_mes2 <- atendimentos %>%
+  mutate(CNES = as.numeric(CNES)) %>%
+  group_by(CNES,UF,MUNIC,OPCAO_CUSTEIO)%>%
+  summarise(media_cnes_sem = round(sum(ATENDIMENTO)/6,0)
+             )
+ 
+  
+# mostra média de atendimentos de cada estado por PORTE no semestre
+# FILTRA Somente as opções III, V e VIII de custeio, que equivalem aos portes I, II e III
+atendimentos_mes_uf2 <- atendimentos_mes2 %>%
+  filter(OPCAO_CUSTEIO %in% c('III','V','VIII'))%>%
+  group_by(UF,OPCAO_CUSTEIO)%>%
+  summarise(nr_upa = n(),
+            total_media = round(sum(media_cnes_sem)/nr_upa,0)) %>%
+  spread(OPCAO_CUSTEIO,total_media, fill=0)%>%
+  group_by(UF)%>%
+    summarise(nr_upa = sum(nr_upa),
+                 III = sum(III),
+                   V = sum(V),
+               VIII = sum(VIII))
+
+# grafico boxplot da medIa atendimento por uf e porte I
+atend_porteI <- atendimentos_mes2 %>%
+  filter(OPCAO_CUSTEIO == "III")%>% 
+  filter(MUNIC != "Itanhaém")%>%    #outlier
+  filter(media_cnes_sem > 100)      #outlier (5 casos)
+  box_atend_uf1 <- ggplot(atend_porteI, aes(x = UF, y = media_cnes_sem, fill=UF))+
+  geom_boxplot()+  theme(legend.position="none")+
+    labs(title="Média mensal de atendimentos por UF - UPA PORTE I",x="", y = "Média Atendimentos/mês")+
+    geom_hline(yintercept = 4500, linetype="dashed", color = "red")
+  box_atend_uf1
+
+# grafico boxplot da medIa atendimento por uf e porte II
+  atend_porteII <- atendimentos_mes2 %>%
+    filter(OPCAO_CUSTEIO == "V")%>%
+    filter(MUNIC != "Parnamirim")%>%   #outlier
+    filter(media_cnes_sem > 350)      #outlier (2 casos)
+    box_atend_uf2 <- ggplot(atend_porteII, aes(x = UF, y = media_cnes_sem,fill=UF))+
+    geom_boxplot()+ theme(legend.position="none")+
+      labs(title="Média mensal de atendimentos por UF - UPA PORTE II",x="", y = "Média Atendimentos/mês")+
+      geom_hline(yintercept = 6750, linetype="dashed", color = "red")
+    box_atend_uf2
+  
+
+# grafico boxplot da medIa atendimento por uf e porte III
+  atend_porteIII <- atendimentos_mes2 %>%
+    filter(OPCAO_CUSTEIO == "VIII")%>%
+    filter(MUNIC != "Duque de Caxias")%>%  #outlier (2 casos)
+    filter(media_cnes_sem > 600)          #outlier (3 casos)
+    box_atend_uf3 <- ggplot(atend_porteIII, aes(x = UF, y = media_cnes_sem, fill=UF))+
+    geom_boxplot()+ theme(legend.position="none")+
+     labs(title="Média mensal de atendimentos por UF - UPA PORTE III",x="", y = "Média Atendimentos/mês")+
+      geom_hline(yintercept = 10125, linetype="dashed", color = "red")
+    box_atend_uf3
+```
+
+# A PESQUISA
+
+## OBJETO E OBJETIVOS
+
+OBJETO
+
+O Programa UPA 24h do Ministério da Saúde. A situação da implantação das Unidades de Pronto Atendimento - UPA 24h no país, considerando seus diferentes portes.
+
+OBJETIVOS
+
+  - Descrever panorama da situação de implantação das UPA no país
+  - Descrever panorama das UPA 24h em funcionamento no país considerando seu porte e atendimento
+  - Identificar dificuldades na implantação do Programa comparando o perfil de atendimento existente com o universo de oferta inicialmente previsto
+
+# CONTEXTO E MÉTODO
+## Contexto
+Avaliação de um programa que completou 10 anos, num contexto de deficiência da Rede Atenção às Urgência, ainda com superlotação de hospitais, com demanda crescente de atendimento e corte de recursos.
+Estados e municípios com dificuldades de implantação e manutenção das UPA já financiadas, solicitando alteração da função das unidades inicialmente propostas. 
+
+## Método {.smaller}
+Para a análise foram utilizadas 2 planilhas Excel com dados de 30/08/18. A primeira planilha de uso interno da Coordenação-Geral de Urgência e Emergência do Ministério da Saúde, com o controle resumo das propostas de implantação das UPA em andamento no país. Para esta foi necessário o trabalho de limpeza.  
+Após a primeira tentativa de importação com o função read.xlsx e observação inicial de resultado, optei por uma simplificação dos nomes das colunas, ainda em excel, e retirada de textos em campos que identificavam valor ou códigos,  bem como a substituição de zero por vazio em alguns campos, para realizar novamente a importação.  
+A segunda planilha, recebida mensalmente, tem dados extraídos do Sistema SIA/SUS, com a produção consolidada por procedimentos realizados de todas as UPA, nos meses de janeiro a junho de 2018. Na importação desta não foi necessária limpeza dos dados.  
+Foram importadas assim 2 tabelas para análise: "controleupa", "producaoupa".  
+
+
+## MONITORAMENTO DO PROGRAMA UPA 24h NO BRASIL {.smaller}
+1º SEMESTRE DE 2018 
+
+A UPA 24h é um estabelecimento de saúde que compõe a Rede de Atenção às Urgências. É de complexidade intermediária, e deve atuar em conjunto com a Atenção Básica e o SAMU 192 de um lado, e a Atenção Hospitalar e a Atenção Domiciliar de outro. Iniciado pelo Ministério da Saúde em 2008,  o Programa UPA 24h incentiva a construção e implantação de Unidades de Pronto Atendimento-UPA, visando melhorar os serviços de urgência e reduzir a superlotação dos hospitais.
+
+A implantação é prevista para municípios de no mínimo 50.000 habitantes, com atendimento regionalizado. As UPA têm sua estrutura física e de atendimento classificada em Portes:
+
+  - Porte I - De 50.000 a 100.000 habitantes 
+  - Porte II - 100.001 a 200.000
+  - Porte III - 200.001 a 300.000
+  
+## Implantação das UPA 24h no Brasil  {.smaller}
+
+Atualmente existem no Brasil mais de 600 UPA 24h em funcionamento. Temos no entanto mais de 180 ainda em obras, e 141 unidades com obras concluídas que não iniciaram seu funcionamento.  
+
+**Situação**          | **Nr UPA**  | **%**|
+------------------|---------|-----|
+Ação preparatória |      11 | 1,2 | 
+Em obras          |     187 |19,9 | 
+Concluída         |     141 |  15 | 
+Em funcionamento  |     602 |  64 | 
+
+Fonte: CGUE- Ministério da Saúde -30/08/18
+  
+## Implantação das UPA 24h no Brasil  {.smaller}
+
+Ao longo dos anos verifica-se a dificuldade de conclusão das obras e de início de funcionamento das unidades,a despeito do tempo e recurso repassado.
+
+```{r echo=FALSE, eval=T, fig.align='center'}
+plot(UPA_progr)
+
+```
+
+A seguir a distribuição das UPA do Programa por porte no país.
+
+## UPA EM IMPLANTAÇÃO
+
+```{r echo=FALSE, eval=T, fig.align='center'}
+plot(barras_porte)
+
+```
+As propostas de implantação de UPA Porte I se apresentaram em maior número.
+
+## UPA EM FUNCIONAMENTO
+
+```{r echo=FALSE, eval=T, fig.align='center'}
+plot(pizza_porte_func)
+
+```
+Considerando somente as UPA que iniciaram funcionamento, verifica-se uma distribuição mais homogênea entre os portes.
+
+## UPA POR PORTE NOS ESTADOS {.smaller}
+
+```{r echo=FALSE, eval=T, fig.align='center'}
+plot(porte_estado_func)
+
+```
+Pela relação direta com o contingente da população atingida na definção das UPA, percebe-se a concentração de UPA nos estados da região Sudeste, Bahia,Ceará e Paraná, bem como a concentração nestes estados, das UPA de maior porte.    
+
+## MONITORAMENTO DA PRODUÇÃO DAS UPA
+
+Considerando as UPA já em funcionamento, temos uma média de atendimentos esperados, para cada opção de capacidade de atendimento,que seria em torno de  
+    4.500 atendimentos/mês nas unidades Porte I,  
+    6.750 nas Porte II, e  
+    10.125 nas Porte III.  
+
+A seguir gráficos da média mensal de atendimentos realizados nas UPA por porte. Dados do 1º semestre de 2018.
+
+## PRODUÇÃO DAS UPA - DISTRIBUIÇÃO POR ESTADOS
+
+```{r echo=FALSE, eval=T, fig.align='center'}
+plot(box_atend_uf1)
+
+```
+
+## PRODUÇÃO DAS UPA - DISTRIBUIÇÃO POR ESTADOS
+
+```{r echo=FALSE, eval=T, fig.align='center'}
+plot(box_atend_uf2)
+
+```
+
+## PRODUÇÃO DAS UPA - DISTRIBUIÇÃO POR ESTADOS
+
+```{r echo=FALSE, eval=T, fig.align='center'}
+plot(box_atend_uf3)
+
+```
+
+## CONSIDERAÇÕES SOBRE A EVOLUÇÃO DE IMPLANTAÇÃO DAS UPA
+
+Observa-se desde o início do Programa um número considerável de unidades que não chegam a ter obras concluídas ou iniciando seu funcionamento, demostrando a dificuldade de municípios e estados em cumprir o solicitado, apesar do investimento recebido.Isto poderia estar associado a questões de gestão.  
+O crescimento deste número, ano a ano, no entanto, pode indicar falta de condições financeiras de estados e municípios para implantar as UPA, e defasagem dos valores de incentivo repassados, já que os custos totais são partilhados entre os governos federal, estadual e municipal.
+
+## CONSIDERAÇÕES SOBRE A PRODUÇÃO DAS UPA
+
+Os dados mostram que em média as UPA Porte I estão com atendimento abaixo ou bem próximo do esperado. As de Porte II circulam mais em torno do esperado e em muitos casos estão bem acima em vários estados, e as UPA Porte III mostram um número maior de estados com atendimento abaixo do esperado.  
+
+Ficou evidente também que dentro do grupo de UPA de cada porte há uma variação muito grande da média de atendimentos realizados, apontando uma discrepância entre a definição do porte e a real demanda local.
+
